@@ -16,7 +16,8 @@
  */
 import { createInterface } from 'node:readline/promises'
 import { copyFileSync } from 'node:fs'
-import { findHomes, scan, timestamp } from '../src/store.mjs'
+import { scan, timestamp } from '../src/store.mjs'
+import { findHomes, normalizeHome, rememberHome } from '../src/discover.mjs'
 import { assertQuiescent, withLock } from '../src/guard.mjs'
 import { IS_SEA } from '../src/runtime.mjs'
 import {
@@ -125,14 +126,46 @@ async function pickMany(list, prompt) {
 }
 
 // ---------------- 数据目录 ----------------
-async function chooseHome() {
-  const homes = findHomes(flags.home)
-  if (homes.length === 0) throw new Error('没找到 DSH 数据目录。用 --home 指定，例如：--home D:\\dsh-desktop\\data')
-  if (homes.length === 1) return homes[0]
-  console.log('找到多个 DSH 数据目录：')
-  homes.forEach((h, i) => console.log(`${String(i + 1).padStart(3)}. ${h}`))
-  const a = await ask('用哪个？（回车=第一个）')
-  return homes[(Number(a) || 1) - 1] ?? homes[0]
+async function askHomeByHand() {
+  for (;;) {
+    const a = await ask('\n把 DSH 的安装目录或 data 目录拖进这个窗口（或粘贴路径），回车确认；直接回车=退出：')
+    if (!a) return undefined
+    const h = normalizeHome(a)
+    if (h) return h
+    console.log(`「${a}」里没找到 DSH 数据（应有 sessions 文件夹或 storages\\workspace.json），再试一次。`)
+  }
+}
+
+async function chooseHome({ forcePick = false, current } = {}) {
+  if (flags.home && !forcePick) {
+    const h = normalizeHome(flags.home)
+    if (!h) throw new Error(`「${flags.home}」不像 DSH 数据目录（应有 sessions 文件夹或 storages\\workspace.json）。安装目录或 data 目录都可以。`)
+    rememberHome(h); return h
+  }
+  const interactive = process.stdin.isTTY && !YES
+  let deep = forcePick
+  for (;;) {
+    if (deep) console.log('正在查找快捷方式、注册表并扫描各盘（最多几秒）…')
+    const homes = findHomes(undefined, { deep })
+    if (!homes.length) {
+      if (!deep) { deep = true; continue }
+      if (!interactive) throw new Error('没找到 DSH 数据目录。用 --home 指定安装目录或 data 目录，例如：--home "D:\\Apps\\DSH"')
+      console.log('没自动找到 DSH 数据目录。')
+      const h = await askHomeByHand()
+      if (!h) return current ?? done()
+      rememberHome(h); return h
+    }
+    if (homes.length === 1 && (!interactive || pos.length || !forcePick)) { rememberHome(homes[0].path); return homes[0].path }
+    if (!interactive) throw new Error(`找到多个 DSH 数据目录，请用 --home 指定：\n  ${homes.map((h) => h.path).join('\n  ')}`)
+    console.log(homes.length === 1 ? '找到 DSH 数据目录：' : '找到多个 DSH 数据目录：')
+    homes.forEach((h, i) => console.log(`${String(i + 1).padStart(3)}. ${h.path}  （${h.via}）`))
+    console.log(`${deep ? '' : '  s. 不在这里，搜索其它位置\n'}  m. 手动指定（拖入目录）`)
+    const a = (await ask('用哪个？（回车=第 1 个）')).toLowerCase()
+    if (a === 's' && !deep) { deep = true; continue }
+    if (a === 'm') { const h = await askHomeByHand(); if (!h) continue; rememberHome(h); return h }
+    const pick = homes[(Number(a) || 1) - 1] ?? homes[0]
+    rememberHome(pick.path); return pick.path
+  }
 }
 
 /** 改动类操作统一入口：先确认 DSH 已退出，再拿锁。 */
@@ -314,9 +347,9 @@ async function cmdRepair(home) {
 
 // ---------------- 交互菜单 ----------------
 async function menu(home) {
-  console.log(`DSH 会话管理器 —— 数据目录：${home}`)
   for (;;) {
-    console.log('\n 1. 列出会话\n 2. 升级旧会话\n 3. 清理空会话\n 4. 归档会话\n 5. 取消归档\n 6. 移入回收站\n 7. 从回收站恢复\n 8. 彻底清空回收站\n 9. 清洗循环\n10. 撤销循环清洗\n11. 修复被 DSH 隐藏的会话\n 0. 退出')
+    console.log(`\nDSH 会话管理器 —— 数据目录：${home}`)
+    console.log('\n 1. 列出会话\n 2. 升级旧会话\n 3. 清理空会话\n 4. 归档会话\n 5. 取消归档\n 6. 移入回收站\n 7. 从回收站恢复\n 8. 彻底清空回收站\n 9. 清洗循环\n10. 撤销循环清洗\n11. 修复被 DSH 隐藏的会话\n12. 换一个数据目录（搜索 / 手动指定）\n 0. 退出')
     const a = await ask('选：')
     try {
       pos.length = 0; delete flags.undo
@@ -332,6 +365,7 @@ async function menu(home) {
         case '9': await cmdLoops(home); break
         case '10': flags.undo = true; await cmdLoops(home); break
         case '11': await cmdRepair(home); break
+        case '12': home = await chooseHome({ forcePick: true, current: home }); break
         case '0': case '': return
         default: console.log('没有这个选项。')
       }
