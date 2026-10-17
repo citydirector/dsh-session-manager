@@ -3,7 +3,16 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # 只改文档不打包（tag 推送不受 paths 过滤，发布照常）
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
+# 同一分支/标签上的新推送取消尚未跑完的旧构建
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
