@@ -6,7 +6,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
 import * as zlib from 'node:zlib'
 import assert from 'node:assert/strict'
 
@@ -55,4 +55,26 @@ assert.match(dsm('list').out, /共 1 个/)
 const r = dsm('restore', '1', '--yes')
 assert.equal(r.code, 0); assert.match(r.out, /已恢复 1 个/)
 assert.match(dsm('list').out, /共 2 个/)
+// Windows：装在任意名字的目录、dsm.exe 不在安装目录里，也要能找到（扫盘 + 快捷方式）
+if (process.platform === 'win32') {
+  const install = (base) => {
+    const s = join(base, 'data', 'sessions', '--w-proj--', 'session-0123abcd-0000-0000-0000-000000000000')
+    mkdirSync(s, { recursive: true }); writeFileSync(join(s, 'session.v4.jsonl.zstd'), '')
+    writeFileSync(join(base, 'DeepSeek Harness.exe'), '')
+    return join(base, 'data')
+  }
+  const drive = existsSync('D:\\') ? 'D:\\' : 'C:\\'
+  const viaScan = install(join(drive, 'dsm-smoke', '奇怪 名字'))
+  // AppData 不在扫盘范围里，只能靠快捷方式找到
+  const viaLnk = install(join(process.env.LOCALAPPDATA, 'dsm-smoke-lnk', 'Some App'))
+  const lnk = join(process.env.USERPROFILE, 'Desktop', 'DeepSeek Harness smoke.lnk')
+  mkdirSync(dirname(lnk), { recursive: true })
+  spawnSync('powershell.exe', ['-NoProfile', '-Command',
+    `$s=(New-Object -ComObject WScript.Shell).CreateShortcut('${lnk}'); $s.TargetPath='${join(viaLnk, '..', 'DeepSeek Harness.exe')}'; $s.Save()`], { stdio: 'inherit' })
+  const r = spawnSync(exe, ['list'], { encoding: 'utf8', timeout: 120000, cwd: root, env: { ...process.env, APPDATA: join(root, 'appdata') } })
+  const out = `${r.stdout}${r.stderr}`
+  console.log(`$ dsm list（不带 --home）  (退出码 ${r.status})\n${out}`)
+  assert.ok(out.includes(viaScan), '扫盘应找到任意名字的安装')
+  assert.ok(out.includes(viaLnk), '快捷方式应找到 AppData 里的安装')
+}
 console.log('冒烟测试通过')
