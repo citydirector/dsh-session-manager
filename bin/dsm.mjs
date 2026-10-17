@@ -8,15 +8,21 @@
  *   dsm empty                 找出空会话并移入回收站
  *   dsm archive <会话...>     归档 / dsm unarchive <会话...> 取消归档 / dsm archived 列出已归档
  *   dsm trash <会话...>       移入回收站 / dsm restore [条目...] / dsm purge [--older-than 天]
- *   dsm loops [<会话>]        检测并截掉历史里已提交的循环 / dsm loops --undo 撤销
+ *   dsm archived [rm <会话...>|rm all] [--purge]
+                            列出已归档会话；rm 删除选中的或全部（默认进回收站，--purge 彻底删除）
+  dsm loops [<会话>]        检测并截掉历史里已提交的循环 / dsm undo 撤销上一次日志修改
+  dsm tail [<会话>] [--keep-turn N] [--no-compact]
+                            修复烂尾会话：截掉末尾只有报错/重试的轮次，必要时离线压缩上下文
  *   dsm repair                修复因压缩帧布局不对而被 DSH 隐藏的会话
  *
  * <会话> 可以是列表序号、会话 ID（前缀即可）或标题关键字。
  * 通用选项：--home <数据目录>  --dry-run  --yes  --force（跳过 DSH 运行检测，不推荐）
  */
 import { createInterface } from 'node:readline/promises'
-import { copyFileSync } from 'node:fs'
-import { scan, timestamp } from '../src/store.mjs'
+import { copyFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { scan, timestamp, readLog, parseLines, projcachePaths } from '../src/store.mjs'
+import { diagnose, trimTail, compactOffline, estTokens } from '../src/tail.mjs'
 import { findHomes, normalizeHome, rememberHome } from '../src/discover.mjs'
 import { assertQuiescent, withLock } from '../src/guard.mjs'
 import { IS_SEA } from '../src/runtime.mjs'
@@ -44,14 +50,20 @@ const HELP = `dsm —— DeepSeek Harness 独立会话管理器（离线，不�
   dsm empty                 找出空会话并移入回收站
   dsm archive <会话...>     归档 / dsm unarchive <会话...> 取消归档 / dsm archived 列出已归档
   dsm trash <会话...>       移入回收站 / dsm restore [条目...] / dsm purge [--older-than 天]
-  dsm loops [<会话>]        检测并截掉历史里已提交的循环 / dsm loops --undo 撤销
+  dsm archived [rm <会话...>|rm all] [--purge]
+                            列出已归档会话；rm 删除选中的或全部（默认进回收站，--purge 彻底删除）
+  dsm loops [<会话>]        检测并截掉历史里已提交的循环 / dsm undo 撤销上一次日志修改
+  dsm tail [<会话>] [--keep-turn N] [--no-compact]
+                            修复烂尾会话：截掉末尾只有报错/重试的轮次，必要时离线压缩上下文
   dsm repair                修复因压缩帧布局不对而被 DSH 隐藏的会话
 
 <会话> 可以是列表序号、会话 ID（前缀即可）或标题关键字。
 通用选项：--home <数据目录>  --dry-run  --yes  --force（跳过 DSH 运行检测，不推荐）
  `
 
-const VALUE_FLAGS = new Set(['--home', '--older-than', '--migrator'])
+const VALUE_FLAGS = new Set(['--home', '--older-than', '--migrator', '--keep-turn'])
+/** 估算上下文超过这个就建议离线压缩（多数模型窗口 128k–1M，留足余量）。 */
+const COMPACT_AT = 256000
 const flags = {}; const pos = []
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
@@ -245,10 +257,49 @@ async function cmdArchive(home, archived) {
   })
 }
 
+/** 连同子代理会话一起（子代理日志头部的 parentSession 指向父会话）。 */
+function withChildren(all, pick) {
+  const ids = new Set(pick.map((s) => s.id)); const out = [...pick]
+  for (let grew = true; grew;) {
+    grew = false
+    for (const s of all) if (!ids.has(s.id) && ids.has(s.header?.parentSession)) { ids.add(s.id); out.push(s); grew = true }
+  }
+  return out
+}
+
+/** 删除一组会话：默认进回收站；purge=true 则进回收站后立即清掉（不可恢复）。 */
+async function deleteSessions(home, all, pick, purge) {
+  const full = withChildren(all, pick)
+  const kids = full.length - pick.length
+  console.log(pick.map((s) => `  - ${s.title ?? s.id}`).join('\n'))
+  const what = `这 ${pick.length} 个会话${kids ? `（连同 ${kids} 个子代理会话）` : ''}`
+  if (!(await confirm(purge ? `彻底删除${what}？删除后无法恢复` : `把${what}移入回收站？（可恢复）`))) return
+  await mutate(home, () => {
+    const r = trashSessions(home, full)
+    if (purge) {
+      purgeTrash(home, r.items.map((m) => ({ entry: join(r.batch, `${m.project}__${m.dirName}`) })))
+      console.log(`已彻底删除：${r.items.length} 个。`)
+    } else console.log(`已移入回收站：${r.items.length} 个。恢复：dsm restore`)
+  })
+}
+
 async function cmdArchived(home) {
-  const list = scan(home).sessions.filter((s) => s.archived)
+  const { sessions } = scan(home)
+  const list = sessions.filter((s) => s.archived)
   if (!list.length) return console.log('没有已归档的会话。')
+  console.log(`已归档 ${list.length} 个会话：`)
   printRows(list)
+  let pick
+  if (pos[0] === 'rm' || pos[0] === 'delete') {
+    const sel = pos.slice(1)
+    if (!sel.length) throw new Error('dsm archived rm 后面写序号、会话 ID 或 all。')
+    pick = sel.length === 1 && sel[0].toLowerCase() === 'all' ? list : resolveSel(list, sel)
+  } else if (pos.length || !process.stdin.isTTY || YES) return
+  else pick = await pickMany(list, '\n删除哪些')
+  if (!pick.length) return
+  let purge = Boolean(flags.purge)
+  if (!flags.purge && process.stdin.isTTY && !YES) purge = (await ask('放进回收站（可恢复）还是彻底删除？[T=回收站 / p=彻底删除] ')).toLowerCase() === 'p'
+  await deleteSessions(home, sessions, pick, purge)
 }
 
 async function cmdTrash(home) {
@@ -257,12 +308,7 @@ async function cmdTrash(home) {
   if (pos.length) pick = resolveSel(sessions, pos)
   else { printRows(sessions); pick = await pickMany(sessions, '\n移入回收站哪些') }
   if (!pick.length) return
-  console.log(pick.map((s) => `  - ${s.title ?? s.id}`).join('\n'))
-  if (!(await confirm(`把这 ${pick.length} 个会话移入回收站？（可恢复）`))) return
-  await mutate(home, () => {
-    const r = trashSessions(home, pick)
-    console.log(`已移入回收站：${r.items.length} 个。恢复：dsm restore`)
-  })
+  await deleteSessions(home, sessions, pick, false)
 }
 
 function printTrash(items) {
@@ -297,16 +343,73 @@ async function cmdPurge(home) {
   await mutate(home, () => console.log(`已彻底删除 ${purgeTrash(home, pick)} 个。`))
 }
 
-async function cmdLoops(home) {
-  if (flags.undo) {
-    const backups = listLogBackups(home)
-    if (!backups.length) return console.log('没有循环清洗的备份。')
-    backups.forEach((b, i) => console.log(`${String(i + 1).padStart(3)}. ${b.stamp}  ${b.target}`))
-    const a = YES ? '1' : await ask('恢复哪个？（回车=最新）')
-    const b = backups[(Number(a) || 1) - 1]
-    if (!b || !(await confirm(`用备份覆盖 ${b.target}？`))) return
-    return mutate(home, () => { copyFileSync(b.file, b.target); console.log('已恢复。') })
+async function cmdUndo(home) {
+  const backups = listLogBackups(home)
+  if (!backups.length) return console.log('没有日志修改的备份（循环清洗 / 烂尾修复会自动留备份）。')
+  backups.forEach((b, i) => console.log(`${String(i + 1).padStart(3)}. ${b.stamp}  ${b.target}`))
+  const a = YES ? '1' : await ask('恢复哪个？（回车=最新）')
+  const b = backups[(Number(a) || 1) - 1]
+  if (!b || !(await confirm(`用备份覆盖 ${b.target}？`))) return
+  return mutate(home, () => {
+    copyFileSync(b.file, b.target)
+    // 投影缓存跟着日志走：删掉当前的，让 DSH 按恢复后的日志重建
+    const id = parseLines(readLog(b.target).split('\n')[0])[0]?.id
+    if (id) for (const p of projcachePaths(home, id)) rmSync(p, { force: true })
+    console.log('已恢复。')
+  })
+}
+
+async function cmdTail(home) {
+  const { sessions } = scan(home)
+  const v4 = sessions.filter((s) => !s.broken && s.latest?.version === 4 && !s.header?.parentSession)
+  let s
+  if (pos.length) s = resolveSel(v4, pos)[0]
+  else {
+    printRows(v4)
+    s = (await pickMany(v4, '\n修哪个（只选一个）'))[0]
   }
+  if (!s) return
+  const d = diagnose(readLog(s.latest.path))
+  const shown = d.turns.slice(-12)
+  console.log(`\n「${cut(s.title ?? s.id, 50)}」最后 ${shown.length} 轮：`)
+  for (const t of shown) {
+    const mark = t.turn === d.suggestKeep ? ' ←建议保留到这里' : ''
+    console.log(`  第${String(t.turn).padStart(3)} 轮  ${(t.outcome ?? '未结束').padEnd(3)}  ${String(t.msgs).padStart(3)} 条回复  ${String(Math.round(estTokens(t.chars) / 1000)).padStart(4)}k  ${cut(t.user[0] ?? '', 24)}${t.error ? `  ✗ ${cut(t.error, 40)}` : ''}${mark}`)
+  }
+  console.log(`\n当前上下文约 ${(d.contextTokens / 10000).toFixed(1)} 万 token。`)
+  const last = d.turns.at(-1)?.turn
+  let keep = flags['keep-turn'] ? Number(flags['keep-turn']) : d.suggestKeep
+  if (!flags['keep-turn'] && process.stdin.isTTY && !YES) {
+    const a = await ask(`保留到第几轮？（回车=${keep ?? '不截'}，0=不截）`)
+    if (a) keep = Number(a) || undefined
+  }
+  const doTrim = keep && keep < last
+  const evs = d.evs
+  const keptCtx = doTrim ? diagnose(evs.slice(0, d.turns.find((t) => t.turn === keep).end + 1).map((e) => JSON.stringify(e)).join('\n')).contextTokens : d.contextTokens
+  const doCompact = !flags['no-compact'] && keptCtx > COMPACT_AT
+  if (!doTrim && !doCompact) return console.log('不用修：没有要截的烂尾，上下文也不大。')
+  const plan = []
+  if (doTrim) plan.push(`截掉第 ${keep} 轮之后的 ${last - keep} 轮`)
+  if (doCompact) plan.push(`把较早的轮次离线压缩成一条检查点（约 ${(keptCtx / 10000).toFixed(0)} 万 → 十几万 token，保留最近几轮原文）`)
+  // 截掉的轮次里新开的子代理会话
+  const cutTime = doTrim ? evs[d.turns.find((t) => t.turn === keep).end].time : Infinity
+  const orphans = sessions.filter((c) => c.header?.parentSession === s.id && (c.header?.createdAt ?? 0) > cutTime)
+  if (orphans.length) plan.push(`把截掉的轮次里开出的 ${orphans.length} 个子代理会话移入回收站`)
+  console.log(`\n计划：\n  - ${plan.join('\n  - ')}`)
+  if (!(await confirm('执行？（自动备份，可用「撤销上次日志修改」恢复）'))) return
+  await mutate(home, () => {
+    const stamp = timestamp()
+    if (doTrim) { const r = trimTail(home, s, keep, { stamp }); console.log(`  ✓ 截掉 ${r.dropped} 条事件`) }
+    if (doCompact) {
+      const r = compactOffline(home, s, { stamp: `${stamp}-c` })
+      console.log(`  ✓ 压缩：较早的 ${r.compactedTurns} 轮 → 检查点，保留最近 ${r.keptTurns} 轮原文；上下文约 ${(r.beforeTokens / 10000).toFixed(1)} 万 → ${(r.afterTokens / 10000).toFixed(1)} 万 token`)
+    }
+    if (orphans.length) { trashSessions(home, orphans, { stamp, reason: 'tail' }); console.log(`  ✓ ${orphans.length} 个子代理会话已移入回收站`) }
+    console.log('完成。打开 DSH 后，先在模型菜单确认用的是现在可用的模型，再继续对话。')
+  })
+}
+
+async function cmdLoops(home) {
   const { sessions } = scan(home, { withText: true })
   const withLoops = []
   for (const s of sessions) {
@@ -349,23 +452,25 @@ async function cmdRepair(home) {
 async function menu(home) {
   for (;;) {
     console.log(`\nDSH 会话管理器 —— 数据目录：${home}`)
-    console.log('\n 1. 列出会话\n 2. 升级旧会话\n 3. 清理空会话\n 4. 归档会话\n 5. 取消归档\n 6. 移入回收站\n 7. 从回收站恢复\n 8. 彻底清空回收站\n 9. 清洗循环\n10. 撤销循环清洗\n11. 修复被 DSH 隐藏的会话\n12. 换一个数据目录（搜索 / 手动指定）\n 0. 退出')
+    console.log('\n 1. 列出会话\n 2. 升级旧会话\n 3. 清理空会话\n 4. 归档会话\n 5. 取消归档\n 6. 已归档会话（查看 / 删除）\n 7. 移入回收站\n 8. 从回收站恢复\n 9. 彻底清空回收站\n10. 清洗循环\n11. 修复烂尾会话（截尾 + 压缩上下文）\n12. 撤销上次日志修改\n13. 修复被 DSH 隐藏的会话\n14. 换一个数据目录（搜索 / 手动指定）\n 0. 退出')
     const a = await ask('选：')
     try {
-      pos.length = 0; delete flags.undo
+      pos.length = 0
       switch (a) {
         case '1': flags.all = true; await cmdList(home); break
         case '2': await cmdUpgrade(home); break
         case '3': await cmdEmpty(home); break
         case '4': await cmdArchive(home, true); break
         case '5': await cmdArchive(home, false); break
-        case '6': await cmdTrash(home); break
-        case '7': await cmdRestore(home); break
-        case '8': await cmdPurge(home); break
-        case '9': await cmdLoops(home); break
-        case '10': flags.undo = true; await cmdLoops(home); break
-        case '11': await cmdRepair(home); break
-        case '12': home = await chooseHome({ forcePick: true, current: home }); break
+        case '6': await cmdArchived(home); break
+        case '7': await cmdTrash(home); break
+        case '8': await cmdRestore(home); break
+        case '9': await cmdPurge(home); break
+        case '10': await cmdLoops(home); break
+        case '11': await cmdTail(home); break
+        case '12': await cmdUndo(home); break
+        case '13': await cmdRepair(home); break
+        case '14': home = await chooseHome({ forcePick: true, current: home }); break
         case '0': case '': return
         default: console.log('没有这个选项。')
       }
@@ -377,7 +482,8 @@ async function menu(home) {
 const COMMANDS = {
   list: cmdList, upgrade: cmdUpgrade, empty: cmdEmpty, archived: cmdArchived,
   archive: (h) => cmdArchive(h, true), unarchive: (h) => cmdArchive(h, false),
-  trash: cmdTrash, restore: cmdRestore, purge: cmdPurge, loops: cmdLoops, repair: cmdRepair,
+  trash: cmdTrash, restore: cmdRestore, purge: cmdPurge, loops: (h) => (flags.undo ? cmdUndo(h) : cmdLoops(h)),
+  undo: cmdUndo, tail: cmdTail, repair: cmdRepair,
 }
 async function main() {
   try {
