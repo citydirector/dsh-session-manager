@@ -10,6 +10,7 @@ import {
   DSM_DIR, events, parseLines, projcachePaths, readLog, readWorkspace, safeDir, timestamp, writeLog, writeWorkspace,
 } from './store.mjs'
 import { detectInText } from './detector.js'
+import { childNode } from './runtime.mjs'
 
 // =====================================================================
 // 空会话
@@ -290,15 +291,16 @@ export function listLogBackups(home) {
 /** 目标代际：从安装里的 @deepseek-ai/dsh-session 读 SESSION_FORMAT_VERSION。 */
 export function findInstall(home, explicitMigrator) {
   const base = basename(home).toLowerCase() === 'data' ? dirname(home) : undefined
+  const exe = process.platform === 'win32' ? 'node.exe' : 'node'
+  const dshNodes = base ? [join(base, 'node', exe), join(base, 'resources', 'runtime', 'primary-runtime', 'dependencies', 'node', 'bin', exe)] : []
   const cands = []
-  if (explicitMigrator) cands.push({ kind: 'custom', migrator: explicitMigrator, node: process.execPath, env: {} })
+  if (explicitMigrator) cands.push({ kind: 'custom', migrator: explicitMigrator, node: childNode(dshNodes), env: {} })
   if (base) {
-    const nodeExe = join(base, 'node', process.platform === 'win32' ? 'node.exe' : 'node')
-    cands.push({ kind: 'portable', migrator: join(base, 'app', 'migrate-sessions-v4.mjs'), node: existsSync(nodeExe) ? nodeExe : process.execPath, env: {}, modules: join(base, 'app', 'node_modules') })
+    cands.push({ kind: 'portable', migrator: join(base, 'app', 'migrate-sessions-v4.mjs'), node: childNode([dshNodes[0]]), env: {}, modules: join(base, 'app', 'node_modules') })
     const electron = join(base, 'DeepSeek Harness.exe')
     cands.push({ kind: 'desktop', migrator: join(base, 'resources', 'dsh-build', 'migrate-sessions-v4.mjs'), node: electron, env: { ELECTRON_RUN_AS_NODE: '1' } })
   }
-  return cands.find((c) => existsSync(c.migrator) && existsSync(c.node))
+  return cands.find((c) => existsSync(c.migrator) && c.node && existsSync(c.node))
 }
 
 export function targetVersion(install) {
