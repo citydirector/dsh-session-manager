@@ -14,9 +14,7 @@ DeepSeek Harness（DSH）的**独立会话管理器**：一个离线命令行工
 
 ## 使用
 
-需要 Node 22.15+（DSH 便携版、桌面版都自带，`dsm.cmd` 会自动找）。
-
-**Windows：** 把整个目录放在任意位置（推荐放进 DSH 安装目录，例如 `D:\dsh-desktop\tools\dsh-session-manager`），**先完全退出 DSH（含托盘）**，然后双击 `dsm.cmd`，按菜单序号操作：
+**Windows（推荐）：** 从 [Releases](https://github.com/citydirector/dsh-session-manager/releases) 下载 `dsm-win-x64.zip`，解压出 `dsm.exe`（单文件，自带 Node，不用另装任何东西）。放在任意位置（推荐放进 DSH 安装目录，例如 `D:\dsh-desktop\tools\`），**先完全退出 DSH（含托盘）**，然后双击 `dsm.exe`，按菜单序号操作：
 
 ```
  1. 列出会话          5. 取消归档          9. 清洗循环
@@ -25,10 +23,15 @@ DeepSeek Harness（DSH）的**独立会话管理器**：一个离线命令行工
  4. 归档会话          8. 彻底清空回收站    0. 退出
 ```
 
+> `dsm.exe` 没有代码签名，第一次运行 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」。
+> 升级旧会话要跑 DSH 自己的迁移器，`dsm.exe` 会用 DSH 自带的 node（便携版 `node\node.exe`、桌面版本体），其它功能都不依赖外部程序。
+
+**源码方式：** 也可以克隆仓库后双击 `dsm.cmd`，它会找 Node 22.15+（`DSM_NODE` → DSH 便携版/桌面版自带的 node → PATH）。
+
 数据目录自动查找（`DSH_HOME`、工具所在目录的上级、`C/D/E:\dsh-desktop\data`、`dsh-portable\data`、`~/.dsh`），找到多个会让你选。也可以手动指定：
 
 ```bat
-dsm.cmd --home D:\dsh-desktop\data
+dsm.exe --home D:\dsh-desktop\data
 ```
 
 **命令行：**
@@ -65,8 +68,12 @@ dsm repair                     :: 修复被 DSH 隐藏的会话
 ## 测试
 
 ```bash
-npm test
+npm test                         # 单元测试
+node scripts/build-exe.mjs       # 打包 dist/dsm.exe（Node SEA，Linux/Windows 都能打 Windows 版）
+node scripts/smoke-exe.mjs dist/dsm.exe   # 打包后冒烟测试，含「DSH 在跑就拒绝」
 ```
+
+GitHub Actions 在 `windows-latest` 上跑单元测试、打包和冒烟测试，打 `v*` 标签时自动发布 `dsm-win-x64.zip`。
 
 单元测试用合成的 DSH 布局覆盖全部操作。另外在 DSH `0.2.1-rc.2`（以及用 `0.1.2-rc.1`、`0.1.6-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2` 生成的旧会话）上做了端到端验证：每步操作后重启 DSH，通过 DSH 自己的 `session/list` 核对会话、代际状态和空白标记，并对升级、清洗后的会话继续发消息。
 
