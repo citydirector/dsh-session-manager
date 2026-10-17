@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: '22.23.3'
       - name: 单元测试
-        run: node --test test/manager.spec.mjs
+        run: node --test test/manager.spec.mjs test/discover.spec.mjs
       - name: 打包 dsm.exe
         run: node scripts/build-exe.mjs
       - name: 冒烟测试（真实 Windows 进程检测）
