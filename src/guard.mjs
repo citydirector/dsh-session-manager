@@ -8,9 +8,10 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { DSM_DIR } from './store.mjs'
-import { fileURLToPath } from 'node:url'
+import { APP_DIR, IS_SEA } from './runtime.mjs'
 
-const SELF = fileURLToPath(new URL('..', import.meta.url)).toLowerCase()
+// 自己：打包形态只认 dsm.exe 这个文件（exe 可能就放在 DSH 安装目录里，不能排除整个目录）
+const SELF = (IS_SEA ? process.execPath : APP_DIR).toLowerCase()
 
 function processes() {
   if (process.platform === 'win32') {
