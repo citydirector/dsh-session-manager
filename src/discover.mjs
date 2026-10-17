@@ -20,7 +20,7 @@ import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { APP_DIR } from './runtime.mjs'
 
-const SESSION_DIR_RE = /^session-[0-9a-f-]{8,}$/i
+const SESSION_DIR_RE = /^(session-)?[0-9a-f]{8}-[0-9a-f-]{8,}$/i // 主会话带 session- 前缀，子代理会话是裸 UUID
 
 /** 强判定：workspace.json，或 sessions\<项目>\session-xxx\ 里有日志。用于泛扫，避免误认别的程序的 data。 */
 export function isDshHome(dir) {
