@@ -28,7 +28,18 @@ DeepSeek Harness（DSH）的**独立会话管理器**：一个离线命令行工
 
 **源码方式：** 也可以克隆仓库后双击 `dsm.cmd`，它会找 Node 22.15+（`DSM_NODE` → DSH 便携版/桌面版自带的 node → PATH）。
 
-数据目录自动查找（`DSH_HOME`、工具所在目录的上级、`C/D/E:\dsh-desktop\data`、`dsh-portable\data`、`~/.dsh`），找到多个会让你选。也可以手动指定：
+**数据目录怎么找：** DSH 装在哪、叫什么名字都行。按下面顺序找，前几步找到就直接用：
+
+1. `--home`（安装目录或 data 目录都可以，也会被记住）
+2. 环境变量 `DSH_HOME`
+3. `dsm.exe` 所在目录往上逐层：放进安装目录里任意一层都能找到
+4. 上次用过的目录（记在 `%APPDATA%\dsm\config.json`）
+5. `~/.dsh`（官方 CLI 默认位置）
+6. 以上都没有时：开始菜单 / 桌面 / 任务栏里指向 DSH 的快捷方式、卸载注册表里的安装位置、用户和系统级的 `DSH_HOME`
+7. 再没有：扫描每个盘往下 3 层（跳过 Windows、AppData 等系统目录，最多几秒）
+8. 还没有：让你把安装目录拖进窗口
+
+扫描时只认真正的 DSH 数据（`storages\workspace.json`，或 `sessions\<项目>\session-xxx\` 里有日志），别的程序的 `data` 文件夹不会被误认。菜单「12. 换一个数据目录」可以随时重新搜索或手动指定。
 
 ```bat
 dsm.exe --home D:\dsh-desktop\data
