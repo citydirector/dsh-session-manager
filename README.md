@@ -1,114 +1,132 @@
 # dsh-session-manager
 
-DeepSeek Harness（DSH）的**独立会话管理器**：一个离线命令行工具，不是插件，零依赖。
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-| 功能 | 说明 |
+[![Release](https://img.shields.io/github/v/tag/citydirector/dsh-session-manager?sort=semver&label=release)](https://github.com/citydirector/dsh-session-manager/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![DSH tool](https://img.shields.io/badge/DSH%20tool-%E2%89%A50.1.2-blue)](https://github.com/topics/dsh-plugin)
+
+A **standalone session manager** for DeepSeek Harness (DSH): an offline command-line tool, not a plugin, with no dependencies. Works with the portable, desktop, standard install (`~/.dsh`) and npm versions of DSH.
+
+| Feature | What it does |
 |---|---|
-| 列出会话 | 跨所有工作区列出会话：标题、最后使用时间、目录、大小，以及「归档 / 置顶 / 子代理 / 旧代际 / 被 DSH 隐藏」标记 |
-| 升级旧会话 | 把 v0 / v2 / v3 会话升到当前代际（v4），调用 **DSH 自带的迁移器**，旧文件原样保留 |
-| 清理空会话 | 找出「新建后一条消息都没发」的会话，移入回收站 |
-| 归档 / 取消归档 | 用 DSH 自己的归档集合（`archivedSessionIds`），日志和工作区槽位都不动 |
-| 回收站 | 移入、恢复（回到原工作区槽位，归档 / 置顶标记一并恢复）、彻底删除 |
-| 清洗循环 | 截掉历史里已经提交的 `Go. Emit. Let me write.` 类循环（检测规则与 [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue) 同一套） |
-| 修复被隐藏的会话 | 压缩帧布局不合 DSH 要求的会话会被 DSH 当成损坏、从列表里静默隐藏；按 DSH 的格式重写即可恢复 |
+| List sessions | Lists sessions across every workspace: title, last used, directory, size, and archived / pinned / sub-agent / old generation / hidden-by-DSH flags |
+| Upgrade old sessions | Brings v0 / v2 / v3 sessions up to the current generation (v4) with **DSH's own migrator**, leaving the old files as they were |
+| Clean up empty sessions | Finds sessions that were created but never got a message, and moves them to the trash |
+| Archive / unarchive | Uses DSH's own archive set (`archivedSessionIds`), leaving logs and workspace slots alone; archived sessions can be listed on their own and deleted selectively or all at once |
+| Trash | Move in, restore (back to the original workspace slot, with archive / pin flags), purge |
+| Clean loops | Cuts `Go. Emit. Let me write.`-style loops already committed to the history (the same detection rules as [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue)) |
+| Repair broken tails | Trims trailing turns that are only errors and retries, and compacts offline when the context is still too large, so a session that overflows on every retry can carry on |
+| Repair hidden sessions | DSH silently hides a session whose compressed frame layout it doesn't accept, treating it as corrupt; rewriting it in DSH's format brings it back |
 
-## 使用
+Requires Windows (`dsm.exe`) or Node 22.15+ (from source). Handles v0–v4 sessions made by DSH 0.1.2 and later; verified end to end on DSH 0.2.1.
 
-**Windows（推荐）：** 从 [Releases](https://github.com/citydirector/dsh-session-manager/releases) 下载 `dsm-win-x64.zip`，解压出 `dsm.exe`（单文件，自带 Node，不用另装任何东西）。放在任意位置（推荐放进 DSH 安装目录，例如 `D:\dsh-desktop\tools\`），**先完全退出 DSH（含托盘）**，然后双击 `dsm.exe`，按菜单序号操作：
+## Quick start
+
+**Windows (recommended):** download `dsm-win-x64.zip` from [Releases](https://github.com/citydirector/dsh-session-manager/releases) and unzip `dsm.exe` (one file with Node built in; nothing else to install).
+
+1. Put `dsm.exe` anywhere (inside the DSH install directory is best, e.g. `D:\dsh-desktop\tools\`).
+2. **Quit DSH completely first, tray icon included.**
+3. Double-click `dsm.exe` and pick from the menu by number:
 
 ```
- 1. 列出会话                 8. 从回收站恢复
- 2. 升级旧会话               9. 彻底清空回收站
- 3. 清理空会话              10. 清洗循环
- 4. 归档会话                11. 修复烂尾会话（截尾 + 压缩上下文）
- 5. 取消归档                12. 撤销上次日志修改
- 6. 已归档会话（查看/删除）  13. 修复被 DSH 隐藏的会话
- 7. 移入回收站              14. 换一个数据目录
+ 1. List sessions              8. Restore from trash
+ 2. Upgrade old sessions       9. Empty the trash
+ 3. Clean up empty sessions   10. Clean loops
+ 4. Archive sessions          11. Repair a broken tail (trim + compact)
+ 5. Unarchive                 12. Undo the last log change
+ 6. Archived sessions         13. Repair sessions DSH hides
+ 7. Move to trash             14. Choose another data directory
 ```
 
-> `dsm.exe` 没有代码签名，第一次运行 Windows SmartScreen 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」。
-> 升级旧会话要跑 DSH 自己的迁移器，`dsm.exe` 会用 DSH 自带的 node（便携版 `node\node.exe`、桌面版本体），其它功能都不依赖外部程序。
+> `dsm.exe` is not code-signed, so on first run Windows SmartScreen may say "Windows protected your PC": click "More info → Run anyway".
+> Upgrading old sessions runs DSH's own migrator, so `dsm.exe` uses the node that ships with DSH (`node\node.exe` in the portable version, the app itself in the desktop version). Nothing else depends on an outside program.
 
-**源码方式：** 也可以克隆仓库后双击 `dsm.cmd`，它会找 Node 22.15+（`DSM_NODE` → DSH 便携版/桌面版自带的 node → PATH）。
+**From source:** clone the repository and double-click `dsm.cmd`. It looks for Node 22.15+ (`DSM_NODE` → the node bundled with portable / desktop DSH → PATH).
 
-**数据目录怎么找：** DSH 装在哪、叫什么名字都行。按下面顺序找，前几步找到就直接用：
+## Command line
 
-1. `--home`（安装目录或 data 目录都可以，也会被记住）
-2. 环境变量 `DSH_HOME`
-3. `dsm.exe` 所在目录往上逐层：放进安装目录里任意一层都能找到
-4. 上次用过的目录（记在 `%APPDATA%\dsm\config.json`）
-5. `~/.dsh`（官方 CLI 默认位置）
-6. 以上都没有时：开始菜单 / 桌面 / 任务栏里指向 DSH 的快捷方式、卸载注册表里的安装位置、用户和系统级的 `DSH_HOME`
-7. 再没有：扫描每个盘往下 3 层（跳过 Windows、AppData 等系统目录，最多几秒）
-8. 还没有：让你把安装目录拖进窗口
+```bat
+dsm list --all                 :: every session, archived included
+dsm upgrade                    :: upgrade old-generation sessions
+dsm empty                      :: empty sessions → trash
+dsm archive 3 5                :: archive by number; a session ID prefix or a title keyword works too
+dsm unarchive "qq-bot"
+dsm trash 2-4                  :: move to trash
+dsm restore                    :: pick what to restore
+dsm purge --older-than 30      :: purge trash entries older than 30 days
+dsm archived                   :: list archived sessions only; delete some or all
+dsm archived rm all --purge    :: purge every archived session (without --purge they go to the trash)
+dsm loops                      :: detect and clean loops
+dsm tail "qq-bot"              :: repair a broken tail: trim error/retry-only turns, compact offline if still too large
+dsm undo                       :: undo the last log change (loop cleanup / tail repair)
+dsm repair                     :: repair sessions DSH hides
+```
 
-扫描时只认真正的 DSH 数据（`storages\workspace.json`，或 `sessions\<项目>\session-xxx\` 里有日志），别的程序的 `data` 文件夹不会被误认。菜单「14. 换一个数据目录」可以随时重新搜索或手动指定。
+Common options: `--home <data directory>`, `--dry-run` (show, change nothing), `--yes` (no per-item confirmation), `--force` (skip the "is DSH running" check; not recommended).
+
+## Finding the data directory
+
+It doesn't matter where DSH is installed or what the folder is called. dsm looks in this order and uses the first hit:
+
+1. `--home` (the install directory or the data directory; remembered for next time)
+2. The `DSH_HOME` environment variable
+3. Up from the folder `dsm.exe` sits in, level by level: anywhere inside the install directory works
+4. The directory used last time (kept in `%APPDATA%\dsm\config.json`)
+5. `~/.dsh` (DSH's official default; the standard install and the npm version both live here)
+6. Failing those: Start menu / desktop / taskbar shortcuts that point at DSH, install locations in the uninstall registry, user- and system-level `DSH_HOME`
+7. Failing that: a scan three levels down every drive (skipping Windows, AppData and other system folders; a few seconds at most)
+8. Failing that: it asks you to drop the install directory into the window
+
+The scan only accepts real DSH data (`storages\workspace.json`, or logs under `sessions\<project>\session-xxx\`), so another program's `data` folder is never mistaken for it. Menu item 14 searches again or takes a directory by hand at any time.
 
 ```bat
 dsm.exe --home D:\dsh-desktop\data
 ```
 
-**命令行：**
+## Repairing a broken tail (`dsm tail`)
 
-```bat
-dsm list --all                 :: 全部会话（含已归档）
-dsm upgrade                    :: 升级旧代际会话
-dsm empty                      :: 空会话 → 回收站
-dsm archive 3 5                :: 按序号归档；也可以写会话 ID 前缀或标题关键字
-dsm unarchive "qq-bot"
-dsm trash 2-4                  :: 移入回收站
-dsm restore                    :: 选择恢复
-dsm purge --older-than 30      :: 彻底删除 30 天前进回收站的条目
-dsm archived                   :: 只列已归档会话，可挑着删或全删
-dsm archived rm all --purge    :: 已归档的全部彻底删除（不加 --purge 则进回收站）
-dsm loops                      :: 检测并清洗循环
-dsm tail "qq-bot"              :: 修复烂尾会话：截掉末尾只有报错/重试的轮次，上下文过大时离线压缩
-dsm undo                       :: 撤销上一次日志修改（循环清洗 / 烂尾修复）
-dsm repair                     :: 修复被 DSH 隐藏的会话
-```
+Typical symptom: the session grew long, and after a model switch or a context plugin stopped working, every retry fails with `maximum context length` / `prompt is too large`, and even `/compact` fails (the compaction request itself has to carry the whole history).
 
-通用选项：`--home <数据目录>`、`--dry-run`（只看不改）、`--yes`（不逐个确认）、`--force`（跳过「DSH 是否在运行」检测，不推荐）。
+`dsm tail` lists how the last dozen or so turns ended (completed / aborted / errored), with reply counts and sizes, suggests a cut point (the last turn where the model really produced a reply), and then:
 
-## 修复烂尾会话（`dsm tail`）
+1. **Trim:** turns after that point that hold only errors, retries and empty aborts are cut off whole (the log is truncated at the tail, so seqs stay contiguous). Sub-agent sessions opened in those turns go to the trash with them.
+2. **Compact offline:** if the estimated context is still above about 250k tokens after trimming, it calls no model at all. Using DSH's own compaction events (`compaction/start → compaction/summary → checkpoint user/message (surface replace) → compaction/end`), it replaces the older turns with one extractive checkpoint: each turn's user request, the assistant's final reply, and the files written. The most recent turns (about 120k tokens) stay verbatim. Not a word of the full log is deleted; you can still scroll back through the history in DSH.
 
-典型症状：会话越聊越长，某次换了模型或上下文插件失效后，每次「重试」都报
-`maximum context length` / `prompt is too large`，连 `/compact` 也失败（压缩请求本身就要带上全部历史）。
+Both steps back up the original log and projection cache first, and `dsm undo` restores them. Verified on a real DSH 0.2.1: the repaired session resumes normally, and the next request carries only the system prompt, the checkpoint and the kept turns.
 
-`dsm tail` 会列出最后十几轮的结局（完成 / 中止 / 出错）、回复条数和体量，并给出建议截断点（最后一轮模型确实产出过回复的轮次），然后：
+> After repairing, open the session and check the model menu first: trimming goes back to the model selected at the cut point, which may no longer be available.
 
-1. **截尾：** 把建议点之后只有报错、重试、空中止的轮次整段截掉（日志尾部截断，seq 仍连续）。截掉的轮次里新开的子代理会话一并进回收站。
-2. **离线压缩：** 截完后估算上下文仍超过约 25 万 token 时，不调用任何模型，用 DSH 自己的压缩事件（`compaction/start → compaction/summary → 检查点 user/message（surface replace）→ compaction/end`）把较早的轮次换成一条「摘录式」检查点：每轮的用户原话、助手最终回复、写过的文件。最近几轮（约 12 万 token）保留原文。完整日志一个字都不删，DSH 里照样能往上翻看历史。
+## Security
 
-两步都先备份原日志和投影缓存，`dsm undo` 可恢复。已在真实 DSH 0.2.1 上验证：修复后的会话能正常恢复，新一轮请求只带系统提示 + 检查点 + 保留轮次。
+- **DSH must be fully closed.** DSH's JSONL backend allows a single writer, and DSH holds the ledger (`workspace.json`) in memory. Tested: an archive changed from outside while DSH runs is **silently overwritten** the next time DSH writes the ledger. So every modifying operation checks for a DSH process first, and if it cannot tell, it assumes DSH is running (fail closed).
+- **Log contents are rewritten by only three operations:** loop cleanup, frame repair and tail repair (trimming only removes events at the end; compaction only appends). All three back the original up to `<data directory>\.dsm\backups\<time>\` first and verify after writing (same event count, decodes fully, valid frame layout).
+- **The trash deletes nothing:** the whole session directory, projection cache included, moves to `<data directory>\.dsm\trash\<time>\`, a new batch each time that never overwrites an older one. A restore whose target already exists is refused; two histories are never merged.
+- **Ledger backups:** every write to `workspace.json` leaves a copy in `.dsm\backups\<time>\` first.
+- The workspace directory is always read from the session log header, never guessed from the lossy project folder name. The projection cache (`session_projcache`) is derived data: it moves with its session and is never edited.
+- Upgrades use DSH's own migrator (`app\migrate-sessions-v4.mjs` in the portable version, `resources\dsh-build\migrate-sessions-v4.mjs` in the desktop version), run serially with `--jobs 1`: migrating in parallel makes parent and child sessions trip each other's `generation changed during verification`. Without a migrator (the standard install usually has no separate one), point at one with `--migrator <path>`, or open the old sessions in DSH one by one and let DSH upgrade them.
 
-> 修完打开会话后，先在模型菜单确认选的是现在可用的模型（截尾会回到截断点时的模型选择）。
+## DSH format details
 
-## 安全约定
+1. **`session.v4.jsonl.zstd` is a multi-frame file:** the header is one frame, and every append adds another. Node's `zlib.zstdDecompressSync` **decodes only the first frame**, so reading with it gets you just the header line. This tool decodes frame by frame.
+2. **The first frame must be exactly one header line:** when listing sessions DSH decodes and checks only the first frame, and if it fails the session is treated as corrupt: **not shown, no error**. Writing a whole log back as a single frame (as many third-party tools do) makes the session "disappear"; `dsm repair` brings it back.
 
-- **DSH 必须完全退出。** DSH 的 JSONL 后端只允许一个写入者，账目（`workspace.json`）也由 DSH 在内存里持有。实测：DSH 运行时从外部改的归档，会在 DSH 下一次写账目时被**静默覆盖**。所以所有修改类操作都会先检测 DSH 进程，检测不到结果也按「在运行」处理（失败即关闭）。
-- **日志内容只在三种操作里被改写：** 循环清洗、帧修复、烂尾修复（截尾只删末尾事件，压缩只追加事件）。两者都先把原文件备份到 `<数据目录>\.dsm\backups\<时间>\`，写后自检（事件数不变、能完整解码、帧布局合法）。
-- **回收站不删任何东西：** 整个会话目录连同投影缓存搬到 `<数据目录>\.dsm\trash\<时间>\`，每次一个新批次，不覆盖旧条目。恢复时目标已存在就拒绝，绝不合并两份历史。
-- **账目修改前备份：** 每次写 `workspace.json` 前在 `.dsm\backups\<时间>\` 留一份。
-- 工作区目录永远从会话日志头读取，不从有损的项目目录名反推。投影缓存（`session_projcache`）是派生数据，只随会话搬动，不编辑。
-- 升级用 DSH 自带的迁移器（便携版 `app\migrate-sessions-v4.mjs`，桌面版 `resources\dsh-build\migrate-sessions-v4.mjs`），以 `--jobs 1` 串行运行：并发迁移时父子会话会互相触发 `generation changed during verification`。没有迁移器时可以用 `--migrator <路径>` 指定，或者在 DSH 里逐个打开旧会话让 DSH 自己升级。
-
-## 两个容易踩的 DSH 格式细节
-
-1. **`session.v4.jsonl.zstd` 是多帧文件：** 头部一帧，之后每次追加一帧。Node 的 `zlib.zstdDecompressSync` **只解第一帧**，直接用它读会只拿到头部一行。本工具逐帧解码。
-2. **第一帧必须恰好是一行头部：** DSH 列会话时只解第一帧并校验，不合格就把会话当损坏、**不显示、不报错**。把整个日志压成单帧写回（很多第三方工具会这么做）就会让会话「消失」——`dsm repair` 能找回来。
-
-## 测试
+## Development
 
 ```bash
-npm test                         # 单元测试
-node scripts/build-exe.mjs       # 打包 dist/dsm.exe（Node SEA，Linux/Windows 都能打 Windows 版）
-node scripts/smoke-exe.mjs dist/dsm.exe   # 打包后冒烟测试，含「DSH 在跑就拒绝」
+npm test                                  # unit tests
+node scripts/build-exe.mjs                # build dist/dsm.exe (Node SEA; builds the Windows exe on Linux or Windows)
+node scripts/smoke-exe.mjs dist/dsm.exe   # smoke test of the built exe, including "refuse while DSH runs"
 ```
 
-GitHub Actions 在 `windows-latest` 上跑单元测试、打包和冒烟测试，打 `v*` 标签时自动发布 `dsm-win-x64.zip`。
+GitHub Actions runs the unit tests, the build and the smoke test on `windows-latest`, and publishes `dsm-win-x64.zip` when a `v*` tag is pushed.
 
-单元测试用合成的 DSH 布局覆盖全部操作。另外在 DSH `0.2.1-rc.2`（以及用 `0.1.2-rc.1`、`0.1.6-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2` 生成的旧会话）上做了端到端验证：每步操作后重启 DSH，通过 DSH 自己的 `session/list` 核对会话、代际状态和空白标记，并对升级、清洗后的会话继续发消息。
+The unit tests cover every operation on synthetic DSH layouts. It was also verified end to end on DSH `0.2.1-rc.2`, with old sessions made by `0.1.2-rc.1`, `0.1.6-alpha.2`, `0.1.7-rc.2` and `0.2.0-rc.2`: DSH restarted after each step, sessions, generation state and blank flags checked through DSH's own `session/list`, and new messages sent to upgraded and cleaned sessions.
 
-## 许可
+## Related projects
 
-MIT
+- [dsh-remote-access-proxy](https://github.com/citydirector/dsh-remote-access-proxy): Use DSH from your phone, tablet, or another computer
+- [deepinfra-fusion-proxy](https://github.com/citydirector/deepinfra-fusion-proxy): DeepInfra Standard / Flex switching with automatic fallback, per session
+- [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue): Cut model repetition loops mid-stream, prune them from the log, and resume
+
+## License
+
+[MIT](LICENSE)
