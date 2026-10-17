@@ -11,7 +11,9 @@ import * as sea from 'node:sea'
 export const IS_SEA = (() => { try { return sea.isSea() } catch { return false } })()
 
 /** 工具所在目录：exe 所在目录，或源码仓库根目录。 */
-export const APP_DIR = IS_SEA ? dirname(process.execPath) : resolve(dirname(fileURLToPath(import.meta.url)), '..')
+export const APP_DIR = IS_SEA ? dirname(process.execPath)
+  // eslint-disable-next-line no-undef -- 打包成 CJS 后 import.meta 为空，用 __dirname
+  : import.meta.url ? resolve(dirname(fileURLToPath(import.meta.url)), '..') : resolve(__dirname, '..')
 
 /** 子进程用的 node：源码形态就是自己；打包形态要另找（DSH 自带的优先，其次 PATH）。 */
 export function childNode(preferred = []) {
