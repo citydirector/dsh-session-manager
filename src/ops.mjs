@@ -278,6 +278,7 @@ export function listLogBackups(home) {
     const sroot = join(root, stamp, 'sessions')
     for (const project of safeDir(sroot)) for (const dir of safeDir(join(sroot, project))) {
       for (const f of safeDir(join(sroot, project, dir))) {
+        if (!/^session.*\.jsonl(\.zstd)?$/i.test(f)) continue // 旁边的 projcache 目录不是日志
         out.push({ stamp, file: join(sroot, project, dir, f), target: join(home, 'sessions', project, dir, f) })
       }
     }
