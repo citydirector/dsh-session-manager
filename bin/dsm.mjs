@@ -15,10 +15,10 @@
  * 通用选项：--home <数据目录>  --dry-run  --yes  --force（跳过 DSH 运行检测，不推荐）
  */
 import { createInterface } from 'node:readline/promises'
-import { copyFileSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { findHomes, scan, timestamp, readLog } from '../src/store.mjs'
+import { copyFileSync } from 'node:fs'
+import { findHomes, scan, timestamp } from '../src/store.mjs'
 import { assertQuiescent, withLock } from '../src/guard.mjs'
+import { IS_SEA } from '../src/runtime.mjs'
 import {
   isEmptySession, trashSessions, listTrash, restoreFromTrash, purgeTrash, setArchived,
   findLoops, cleanLoops, repairFrames, listLogBackups, findInstall, targetVersion, needsUpgrade, runMigrator,
@@ -35,6 +35,21 @@ import {
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2)
+const HELP = `dsm —— DeepSeek Harness 独立会话管理器（离线，不是插件）。
+
+  dsm                       交互菜单（双击 dsm.cmd 也是这个）
+  dsm list [--all]          列出会话（默认不含已归档）
+  dsm upgrade               把旧代际会话升级到当前代际（调用 DSH 自带迁移器）
+  dsm empty                 找出空会话并移入回收站
+  dsm archive <会话...>     归档 / dsm unarchive <会话...> 取消归档 / dsm archived 列出已归档
+  dsm trash <会话...>       移入回收站 / dsm restore [条目...] / dsm purge [--older-than 天]
+  dsm loops [<会话>]        检测并截掉历史里已提交的循环 / dsm loops --undo 撤销
+  dsm repair                修复因压缩帧布局不对而被 DSH 隐藏的会话
+
+<会话> 可以是列表序号、会话 ID（前缀即可）或标题关键字。
+通用选项：--home <数据目录>  --dry-run  --yes  --force（跳过 DSH 运行检测，不推荐）
+ `
+
 const VALUE_FLAGS = new Set(['--home', '--older-than', '--migrator'])
 const flags = {}; const pos = []
 for (let i = 0; i < argv.length; i++) {
@@ -57,7 +72,12 @@ const ask = async (q) => {
   })
 }
 const confirm = async (q) => YES || (await ask(`${q} [y/N] `)).toLowerCase() === 'y'
-const done = (code = 0) => { rl?.close(); process.exit(code) }
+// 双击 dsm.exe 打开的窗口，结束时停一下，不然报错一闪就没了（dsm.cmd 自己会 pause）
+const PAUSE_AT_EXIT = IS_SEA && argv.length === 0 && process.stdin.isTTY
+const done = async (code = 0) => {
+  if (PAUSE_AT_EXIT) await ask('\n按回车键关闭…')
+  rl?.close(); process.exit(code)
+}
 
 // ---------------- 展示 ----------------
 const fmtTime = (t) => (t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '?')
@@ -325,18 +345,21 @@ const COMMANDS = {
   archive: (h) => cmdArchive(h, true), unarchive: (h) => cmdArchive(h, false),
   trash: cmdTrash, restore: cmdRestore, purge: cmdPurge, loops: cmdLoops, repair: cmdRepair,
 }
-try {
-  if (flags.help || pos[0] === 'help') {
-    console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0].replace(/^#!.*\n\/\*\*\n?/, '').replace(/^ \* ?/gm, ''))
-    done()
+async function main() {
+  try {
+    if (flags.help || pos[0] === 'help') {
+      console.log(HELP)
+      return done()
+    }
+    const home = await chooseHome()
+    const name = pos.shift()
+    if (!name) await menu(home)
+    else if (COMMANDS[name]) await COMMANDS[name](home)
+    else throw new Error(`未知命令：${name}。dsm --help 查看用法。`)
+    await done()
+  } catch (e) {
+    console.error(`✗ ${e.message}`)
+    await done(1)
   }
-  const home = await chooseHome()
-  const name = pos.shift()
-  if (!name) await menu(home)
-  else if (COMMANDS[name]) await COMMANDS[name](home)
-  else throw new Error(`未知命令：${name}。dsm --help 查看用法。`)
-  done()
-} catch (e) {
-  console.error(`✗ ${e.message}`)
-  done(1)
 }
+main()
