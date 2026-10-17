@@ -10,7 +10,6 @@
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, renameSync, mkdirSync, copyFileSync } from 'node:fs'
 import { join, resolve, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { APP_DIR } from './runtime.mjs'
 import * as zlib from 'node:zlib'
 
 /** 与 DSH-build 启动器同一口径：session[.N][.vM].jsonl[.zstd]，无 vM 视为 0。 */
@@ -95,27 +94,7 @@ export function parseLines(text) {
 }
 
 // ---------- 找数据目录 ----------
-export function looksLikeHome(dir) {
-  return existsSync(join(dir, 'sessions')) || existsSync(join(dir, 'storages', 'workspace.json'))
-}
-
-/** 返回所有可能的 DSH 数据目录（去重、按出现顺序）。 */
-export function findHomes(explicit) {
-  if (explicit) return [resolve(explicit)]
-  const found = []
-  const add = (d) => { const r = resolve(d); if (looksLikeHome(r) && !found.includes(r)) found.push(r) }
-  if (process.env.DSH_HOME) add(process.env.DSH_HOME)
-  // 工具放在安装目录或数据目录里时，向上找
-  for (let d = APP_DIR; ; d = dirname(d)) {
-    add(d); add(join(d, 'data'))
-    if (dirname(d) === d) break
-  }
-  if (process.platform === 'win32') {
-    for (const drive of 'CDEFGH') for (const n of ['dsh-desktop', 'dsh-portable', 'dsh']) add(`${drive}:\\${n}\\data`)
-  }
-  add(join(homedir(), '.dsh'))
-  return found
-}
+export { looksLikeHome, findHomes } from './discover.mjs'
 
 // ---------- 账目 ----------
 export function workspacePath(home) { return join(home, 'storages', 'workspace.json') }
