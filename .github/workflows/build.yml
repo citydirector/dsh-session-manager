@@ -22,7 +22,7 @@ jobs:
         run: node scripts/smoke-exe.mjs dist/dsm.exe
       - name: 压缩
         shell: pwsh
-        run: Compress-Archive -Path dist/dsm.exe, README.md, LICENSE -DestinationPath dist/dsm-win-x64.zip
+        run: Compress-Archive -Path dist/dsm.exe, README.md, README.zh-CN.md, LICENSE -DestinationPath dist/dsm-win-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: dsm-win-x64
