@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DeepSeek Harness 独立会话管理器：升级旧会话、归档、回收站、空会话清理、循环清洗、修复被隐藏的会话（离线 CLI，零依赖）",
   "type": "module",
   "bin": { "dsm": "bin/dsm.mjs" },
