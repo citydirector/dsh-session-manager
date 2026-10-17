@@ -10,7 +10,7 @@
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, renameSync, mkdirSync, copyFileSync } from 'node:fs'
 import { join, resolve, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { APP_DIR } from './runtime.mjs'
 import * as zlib from 'node:zlib'
 
 /** 与 DSH-build 启动器同一口径：session[.N][.vM].jsonl[.zstd]，无 vM 视为 0。 */
@@ -106,7 +106,7 @@ export function findHomes(explicit) {
   const add = (d) => { const r = resolve(d); if (looksLikeHome(r) && !found.includes(r)) found.push(r) }
   if (process.env.DSH_HOME) add(process.env.DSH_HOME)
   // 工具放在安装目录或数据目录里时，向上找
-  for (let d = dirname(fileURLToPath(import.meta.url)); ; d = dirname(d)) {
+  for (let d = APP_DIR; ; d = dirname(d)) {
     add(d); add(join(d, 'data'))
     if (dirname(d) === d) break
   }
