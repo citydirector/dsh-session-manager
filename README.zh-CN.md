@@ -1,6 +1,6 @@
 # dsh-session-manager
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+[English](README.md) · **简体中文**
 
 [![Release](https://img.shields.io/github/v/tag/citydirector/dsh-session-manager?sort=semver&label=release)](https://github.com/citydirector/dsh-session-manager/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![DSH tool](https://img.shields.io/badge/DSH%20tool-%E2%89%A50.1.2-blue)](https://github.com/topics/dsh-plugin)
 
@@ -110,7 +110,7 @@ dsm.exe --home D:\dsh-desktop\data
 1. **`session.v4.jsonl.zstd` 是多帧文件：** 头部一帧，之后每次追加一帧。Node 的 `zlib.zstdDecompressSync` **只解第一帧**，直接用它读会只拿到头部一行。本工具逐帧解码。
 2. **第一帧必须恰好是一行头部：** DSH 列会话时只解第一帧并校验，不合格就把会话当损坏、**不显示、不报错**。把整个日志压成单帧写回（很多第三方工具会这么做）就会让会话「消失」——`dsm repair` 能找回来。
 
-## 开发与测试
+## 开发
 
 ```bash
 npm test                         # 单元测试
@@ -124,9 +124,16 @@ GitHub Actions 在 `windows-latest` 上跑单元测试、打包和冒烟测试�
 
 ## 相关项目
 
-- [dsh-remote-access-proxy](https://github.com/citydirector/dsh-remote-access-proxy)：在手机、平板或另一台电脑上使用 DSH
-- [deepinfra-fusion-proxy](https://github.com/citydirector/deepinfra-fusion-proxy)：DeepInfra Standard / Flex 按会话切换与自动回退
-- [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue)：模型复读时从流内切断、剪掉循环并自动续跑
+[@citydirector](https://github.com/citydirector) 的其它 DeepSeek Harness（DSH）项目：
+
+| 项目 | 类型 | 用途 |
+|---|---|---|
+| [DSH-build](https://github.com/citydirector/DSH-build) | 构建 | DSH 的 Windows 便携版 / 桌面版绿色构建，每天跟随上游打补丁、冒烟、发布 |
+| [dsh-remote-access-proxy](https://github.com/citydirector/dsh-remote-access-proxy) | 插件 | 在手机、平板或其它电脑上用浏览器访问 DSH Web GUI |
+| [deepinfra-fusion-proxy](https://github.com/citydirector/deepinfra-fusion-proxy) | 插件 | DeepInfra Standard / Flex 按会话切换与自动回退 |
+| [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue) | 插件 | 模型复读时从流内切断、剪掉循环并自动续跑 |
+| [dsh-pwsh-plugin](https://github.com/citydirector/dsh-pwsh-plugin) | 插件 | 常驻 pwsh 会话工具（`pwsh_run`），附带给 `bash` 补写边界的 WSL 垫片 |
+| [ui-locate-mcp](https://github.com/citydirector/ui-locate-mcp) | MCP 插件 | 按界面文字和图标给出精确像素坐标，用于桌面操作 |
 
 ## 许可证
 

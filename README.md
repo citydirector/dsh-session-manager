@@ -1,6 +1,6 @@
 # dsh-session-manager
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md)
 
 [![Release](https://img.shields.io/github/v/tag/citydirector/dsh-session-manager?sort=semver&label=release)](https://github.com/citydirector/dsh-session-manager/releases) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![DSH tool](https://img.shields.io/badge/DSH%20tool-%E2%89%A50.1.2-blue)](https://github.com/topics/dsh-plugin)
 
@@ -123,9 +123,16 @@ The unit tests cover every operation on synthetic DSH layouts. It was also verif
 
 ## Related projects
 
-- [dsh-remote-access-proxy](https://github.com/citydirector/dsh-remote-access-proxy): Use DSH from your phone, tablet, or another computer
-- [deepinfra-fusion-proxy](https://github.com/citydirector/deepinfra-fusion-proxy): DeepInfra Standard / Flex switching with automatic fallback, per session
-- [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue): Cut model repetition loops mid-stream, prune them from the log, and resume
+More DeepSeek Harness (DSH) projects from [@citydirector](https://github.com/citydirector):
+
+| Project | Kind | What it does |
+|---|---|---|
+| [DSH-build](https://github.com/citydirector/DSH-build) | Build | Portable and desktop Windows builds of DSH, patched, smoke-tested and released daily |
+| [dsh-remote-access-proxy](https://github.com/citydirector/dsh-remote-access-proxy) | Plugin | Use the DSH Web GUI from your phone, tablet, or another computer |
+| [deepinfra-fusion-proxy](https://github.com/citydirector/deepinfra-fusion-proxy) | Plugin | DeepInfra Standard / Flex switching with automatic fallback, per session |
+| [dsh-loop-rescue](https://github.com/citydirector/dsh-loop-rescue) | Plugin | Cut model repetition loops mid-stream, prune them from the log, and resume |
+| [dsh-pwsh-plugin](https://github.com/citydirector/dsh-pwsh-plugin) | Plugin | Persistent pwsh session tool (`pwsh_run`), plus a WSL write boundary for `bash` |
+| [ui-locate-mcp](https://github.com/citydirector/ui-locate-mcp) | MCP plugin | Pixel-exact coordinates for on-screen text and icons, for desktop automation |
 
 ## License
 
