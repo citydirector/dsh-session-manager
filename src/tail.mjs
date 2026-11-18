@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, copyFileSync, renameSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { DSM_DIR, parseLines, projcachePaths, readLog, timestamp, writeLog } from './store.mjs'
+import { DSM_DIR, parseLines, markWritten, projcachePaths, readLog, timestamp, writeLog } from './store.mjs'
 
 /** 与 DSH dsh-compaction-basic 完全相同的检查点外框，模型看到的形态和原生压缩一致。 */
 export const CHECKPOINT_PREAMBLE = 'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
@@ -109,6 +109,7 @@ export function trimTail(home, session, keepTurn, { stamp = timestamp() } = {}) 
   const backup = backupLog(home, session, stamp, 'trim')
   writeLog(session.latest.path, `${kept.map((e) => JSON.stringify(e)).join('\n')}\n`)
   if (parseLines(readLog(session.latest.path)).length !== kept.length) throw new Error('自检失败：写回后事件数不对。')
+  markWritten(backup, session.latest.path)
   return { dropped, backup, cutTime: evs[t.end].time }
 }
 
@@ -188,5 +189,6 @@ export function compactOffline(home, session, { keepTokens = 120000, keepTurns, 
   const backup = backupLog(home, session, stamp, 'compact')
   writeLog(session.latest.path, `${evs.map((e) => JSON.stringify(e)).join('\n')}\n`)
   if (parseLines(readLog(session.latest.path)).length !== evs.length) throw new Error('自检失败：写回后事件数不对。')
+  markWritten(backup, session.latest.path)
   return { compactedTurns: compacted.length, keptTurns: k, beforeTokens, afterTokens, summaryChars: body.length, backup }
 }

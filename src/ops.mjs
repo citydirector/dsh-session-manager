@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, rmSync,
 import { join, dirname, basename, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
-  DSM_DIR, events, parseLines, projcachePaths, readLog, readWorkspace, safeDir, timestamp, writeLog, writeWorkspace,
+  DSM_DIR, checkWritten, events, markWritten, parseLines, projcachePaths, readLog, readWorkspace, safeDir, timestamp, writeLog, writeWorkspace,
 } from './store.mjs'
 import { detectInText } from './detector.js'
 import { childNode } from './runtime.mjs'
@@ -181,6 +181,7 @@ export function repairFrames(home, session, { stamp = timestamp() } = {}) {
   copyFileSync(session.latest.path, backup)
   writeLog(session.latest.path, text)
   if (readLog(session.latest.path) !== text) throw new Error('自检失败：重写后内容不一致。')
+  markWritten(backup, session.latest.path)
   return { backup }
 }
 
@@ -267,6 +268,7 @@ export function cleanLoops(home, session, { stamp = timestamp() } = {}) {
   if (parseLines(next).length !== parseLines(text).length) throw new Error('自检失败：事件数变化，未写入。')
   writeLog(session.latest.path, next)
   if (findLoops(readLog(session.latest.path)).count !== 0) throw new Error('自检失败：写回后仍检测到循环。')
+  markWritten(backup, session.latest.path)
   return { removed, blocks: count, backup }
 }
 
@@ -284,6 +286,23 @@ export function listLogBackups(home) {
     }
   }
   return out.sort((a, b) => b.stamp.localeCompare(a.stamp))
+}
+
+/**
+ * 用备份恢复日志。恢复前先把当前日志也备份一份（新时间戳），所以撤销本身也能撤销。
+ * 返回 { saved }：当前日志的备份路径。是否允许覆盖由调用方先用 checkWritten 判断。
+ */
+export function restoreLog(home, b, { stamp = timestamp() } = {}) {
+  const rel = relative(join(home, 'sessions'), b.target)
+  const saved = join(home, DSM_DIR, 'backups', stamp, 'sessions', rel)
+  if (saved === b.file) throw new Error('时间戳与所选备份相同，请稍后再试。')
+  mkdirSync(dirname(saved), { recursive: true })
+  if (existsSync(b.target)) copyFileSync(b.target, saved)
+  copyFileSync(b.file, b.target)
+  const id = parseLines(readLog(b.target).split('\n')[0])[0]?.id
+  if (id) for (const p of projcachePaths(home, id)) rmSync(p, { force: true })
+  markWritten(saved, b.target)
+  return { saved }
 }
 
 // =====================================================================

@@ -19,16 +19,15 @@
  * 通用选项：--home <数据目录>  --dry-run  --yes  --force（跳过 DSH 运行检测，不推荐）
  */
 import { createInterface } from 'node:readline/promises'
-import { copyFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { scan, timestamp, readLog, parseLines, projcachePaths } from '../src/store.mjs'
+import { scan, timestamp, checkWritten, readLog } from '../src/store.mjs'
 import { diagnose, trimTail, compactOffline, estTokens } from '../src/tail.mjs'
 import { findHomes, normalizeHome, rememberHome } from '../src/discover.mjs'
 import { assertQuiescent, withLock } from '../src/guard.mjs'
 import { IS_SEA } from '../src/runtime.mjs'
 import {
   isEmptySession, trashSessions, listTrash, restoreFromTrash, purgeTrash, setArchived,
-  findLoops, cleanLoops, repairFrames, listLogBackups, findInstall, targetVersion, needsUpgrade, runMigrator,
+  findLoops, cleanLoops, repairFrames, listLogBackups, restoreLog, findInstall, targetVersion, needsUpgrade, runMigrator,
 } from '../src/ops.mjs'
 
 // ---------------- 环境 ----------------
@@ -349,13 +348,18 @@ async function cmdUndo(home) {
   backups.forEach((b, i) => console.log(`${String(i + 1).padStart(3)}. ${b.stamp}  ${b.target}`))
   const a = YES ? '1' : await ask('恢复哪个？（回车=最新）')
   const b = backups[(Number(a) || 1) - 1]
-  if (!b || !(await confirm(`用备份覆盖 ${b.target}？`))) return
+  if (!b) return
+  const w = checkWritten(b.file, b.target)
+  if (w.changed || !w.known) {
+    console.log(w.changed
+      ? `\n⚠ dsm 改完之后这个会话又有新内容（当时 ${w.events} 条事件，现在 ${w.eventsNow} 条）。用备份覆盖会丢掉之后的对话。`
+      : '\n⚠ 这份备份没有修改后指纹（旧版 dsm 留下的），无法确认之后有没有新对话。')
+    if (YES) return console.log('--yes 模式下不自动覆盖；请去掉 --yes 手动确认。')
+    if (!(await confirm('仍然覆盖？当前日志会先另存一份备份'))) return
+  } else if (!(await confirm(`用备份覆盖 ${b.target}？`))) return
   return mutate(home, () => {
-    copyFileSync(b.file, b.target)
-    // 投影缓存跟着日志走：删掉当前的，让 DSH 按恢复后的日志重建
-    const id = parseLines(readLog(b.target).split('\n')[0])[0]?.id
-    if (id) for (const p of projcachePaths(home, id)) rmSync(p, { force: true })
-    console.log('已恢复。')
+    const { saved } = restoreLog(home, b)
+    console.log(`已恢复。恢复前的日志另存在 ${saved}，可再次 dsm undo 找回。`)
   })
 }
 

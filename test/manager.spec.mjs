@@ -4,10 +4,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as zlib from 'node:zlib'
-import { decode, encodeLog, headerFrameOk, readLog, writeLog, scan, readWorkspace } from '../src/store.mjs'
+import { decode, encodeLog, headerFrameOk, frameEnd, readLog, writeLog, scan, readWorkspace, checkWritten } from '../src/store.mjs'
 import {
   isEmptySession, trashSessions, listTrash, restoreFromTrash, purgeTrash, setArchived, findLoops, cleanLoops,
-  repairFrames, needsUpgrade,
+  repairFrames, needsUpgrade, listLogBackups, restoreLog,
 } from '../src/ops.mjs'
 
 const CWD = '/w/proj'
@@ -75,8 +75,13 @@ test('多帧日志：逐帧解码完整，不只读第一帧', () => {
   const s = byId('session-chat')
   const text = readLog(s.latest.path)
   assert.equal(text.trim().split('\n').length, 7)
-  // 对照：Node 自带的 zstdDecompressSync 只解第一帧
-  assert.equal(zlib.zstdDecompressSync(readFileSync(s.latest.path)).toString().trim().split('\n').length, 1)
+  // 对照：Node 22 自带的 zstdDecompressSync 只解第一帧；Node 24+（DSH 0.2.2 的运行时）会解全部帧。
+  // dsm 逐帧解码，两种行为下结果都必须完整。
+  const native = zlib.zstdDecompressSync(readFileSync(s.latest.path)).toString().trim().split('\n').length
+  assert.ok(native === 1 || native === 7, `native=${native}`)
+  // 第一帧单独解出来恰好是头部一行（DSH 列表只读第一帧）
+  const first = readFileSync(s.latest.path).subarray(0, frameEnd(readFileSync(s.latest.path), 0))
+  assert.equal(zlib.zstdDecompressSync(first).toString().trim().split('\n').length, 1)
 })
 
 test('写回保持 DSH 的帧布局：第一帧恰好一行头部', () => {
@@ -101,6 +106,24 @@ test('空会话：只有种子事件才算空；未知事件按有内容处理',
   assert.deepEqual(sessions.filter(isEmptySession).map((s) => s.id), ['session-empty'])
   addSession('session-odd', [header('session-odd'), { type: 'something/new', seq: 0, time: 1, data: {} }])
   assert.equal(isEmptySession(scan(home, { withText: true }).sessions.find((s) => s.id === 'session-odd')), false)
+})
+
+test('DSH 0.2.2 实测形态：web 新建未发言判空；session.lock 随目录进出回收站', () => {
+  // 取自 DSH 0.2.2-rc.4 session/create 后未发言的真实日志（list 里 blank: true）
+  const dir = addSession('session-blank22', [
+    { type: 'session', version: 4, id: 'session-blank22', createdAt: 1, cwd: CWD, isSeeded: false, delegationDepth: 0, agentPreset: 'standard' },
+    { type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write' } },
+    { type: 'sandbox/mode', seq: 1, time: 1, data: { mode: 'workspace-write' } },
+    { type: 'approval/policy', seq: 2, time: 1, data: { policy: 'ask' } },
+  ])
+  writeFileSync(join(dir, 'session.lock'), '') // 0.2.2 的 flock 租约文件，DSH 退出后仍留着
+  const s = scan(home, { withText: true }).sessions.find((x) => x.id === 'session-blank22')
+  assert.equal(isEmptySession(s), true)
+  trashSessions(home, [s])
+  const [item] = listTrash(home).filter((t) => t.id === 'session-blank22')
+  assert.equal(existsSync(join(item.entry, 'session', 'session.lock')), true)
+  restoreFromTrash(home, [item])
+  assert.equal(existsSync(join(dir, 'session.lock')), true)
 })
 
 test('回收站：搬走目录与投影缓存、摘账目；恢复回原槽位与标记', () => {
@@ -177,4 +200,27 @@ test('修复被 DSH 隐藏的会话：单帧重写为头部独立成帧', () => 
   repairFrames(home, bad)
   assert.equal(byId('session-chat').badFrame, false)
   assert.equal(readLog(s.latest.path), text)
+})
+
+test('undo 安全：DSH 之后追加了事件时能识别，恢复前另存当前日志', () => {
+  const s = byId('session-loop')
+  const r = cleanLoops(home, s, { stamp: '20990101-000000' })
+  const b = listLogBackups(home).find((x) => x.file === r.backup)
+  assert.ok(b)
+  assert.deepEqual({ known: true, changed: false }, (({ known, changed }) => ({ known, changed }))(checkWritten(b.file, b.target)))
+  // 模拟 DSH 在清洗后又追加了一轮
+  const cleaned = readLog(s.latest.path)
+  const lastSeq = Math.max(...cleaned.trim().split('\n').map((l) => JSON.parse(l).seq ?? 0))
+  const appended = `${cleaned.trimEnd()}\n${JSON.stringify({ type: 'turn/start', seq: lastSeq + 1, time: 9, data: { turn: 99 } })}\n`
+  writeLog(s.latest.path, appended)
+  const w = checkWritten(b.file, b.target)
+  assert.equal(w.changed, true)
+  assert.equal(w.eventsNow, w.events + 1)
+  const { saved } = restoreLog(home, b, { stamp: '20990101-000001' })
+  assert.equal(readLog(saved), appended)
+  assert.equal(findLoops(readLog(s.latest.path)).count, 1)
+  // 撤销本身也能撤销：新备份出现在列表最前，且指纹与当前日志一致
+  const again = listLogBackups(home)[0]
+  assert.equal(again.file, saved)
+  assert.equal(checkWritten(again.file, again.target).changed, false)
 })

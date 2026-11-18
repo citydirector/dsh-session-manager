@@ -10,6 +10,7 @@
 import { readFileSync, readdirSync, statSync, existsSync, writeFileSync, renameSync, mkdirSync, copyFileSync } from 'node:fs'
 import { join, resolve, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
 import * as zlib from 'node:zlib'
 
 /** 与 DSH-build 启动器同一口径：session[.N][.vM].jsonl[.zstd]，无 vM 视为 0。 */
@@ -83,6 +84,25 @@ export function writeLog(path, text) {
   const tmp = `${path}.dsm-tmp`
   writeFileSync(tmp, body)
   renameSync(tmp, path)
+}
+/**
+ * 在备份旁记下「dsm 写完后」日志的指纹（<备份>.after）。dsm undo 用它判断
+ * 写完之后 DSH 有没有再追加事件，避免用旧备份把新对话盖掉。
+ */
+export function markWritten(backup, target) {
+  const bytes = readFileSync(target)
+  const events = parseLines(readLog(target)).length
+  writeFileSync(`${backup}.after`, JSON.stringify({ sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, events }))
+}
+/** 比对当前日志与 markWritten 记下的指纹。返回 { known, changed, events, eventsNow }。 */
+export function checkWritten(backup, target) {
+  let mark
+  try { mark = JSON.parse(readFileSync(`${backup}.after`, 'utf8')) } catch { /* 旧版本 dsm 留下的备份没有指纹 */ }
+  const bytes = readFileSync(target)
+  const eventsNow = parseLines(readLog(target)).length
+  if (!mark) return { known: false, changed: undefined, events: undefined, eventsNow }
+  const sha = createHash('sha256').update(bytes).digest('hex')
+  return { known: true, changed: sha !== mark.sha256, events: mark.events, eventsNow }
 }
 export function parseLines(text) {
   const out = []

@@ -20,11 +20,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # DSH 0.2.2 起要求 Node >= 24.9：先用 Node 24 跑一遍单测
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 单元测试（Node 24）
+        run: node --test test/manager.spec.mjs test/discover.spec.mjs test/tail.spec.mjs
+      # dsm.exe 仍用 Node 22 打包（SEA）
       - uses: actions/setup-node@v4
         with:
           node-version: '22.23.3'
-      - name: 单元测试
-        run: node --test test/manager.spec.mjs test/discover.spec.mjs
+      - name: 单元测试（Node 22）
+        run: node --test test/manager.spec.mjs test/discover.spec.mjs test/tail.spec.mjs
       - name: 打包 dsm.exe
         run: node scripts/build-exe.mjs
       - name: 冒烟测试（真实 Windows 进程检测）

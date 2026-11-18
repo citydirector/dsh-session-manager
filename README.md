@@ -91,7 +91,7 @@ Typical symptom: the session grew long, and after a model switch or a context pl
 1. **Trim:** turns after that point that hold only errors, retries and empty aborts are cut off whole (the log is truncated at the tail, so seqs stay contiguous). Sub-agent sessions opened in those turns go to the trash with them.
 2. **Compact offline:** if the estimated context is still above about 250k tokens after trimming, it calls no model at all. Using DSH's own compaction events (`compaction/start → compaction/summary → checkpoint user/message (surface replace) → compaction/end`), it replaces the older turns with one extractive checkpoint: each turn's user request, the assistant's final reply, and the files written. The most recent turns (about 120k tokens) stay verbatim. Not a word of the full log is deleted; you can still scroll back through the history in DSH.
 
-Both steps back up the original log and projection cache first, and `dsm undo` restores them. Verified on a real DSH 0.2.1: the repaired session resumes normally, and the next request carries only the system prompt, the checkpoint and the kept turns.
+Both steps back up the original log and projection cache first, and `dsm undo` restores them. Before overwriting, undo checks whether DSH has appended to the log since dsm wrote it, warns with the event counts, and always saves the current log as a new backup, so an undo can itself be undone. Verified on DSH 0.2.1 and 0.2.2-rc.4: the repaired session resumes normally, and the next request carries only the system prompt, the checkpoint and the kept turns.
 
 > After repairing, open the session and check the model menu first: trimming goes back to the model selected at the cut point, which may no longer be available.
 

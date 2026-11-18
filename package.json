@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-manager",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Standalone offline session manager for DeepSeek Harness (DSH): upgrade old sessions, archive, trash, clean up empty sessions and loops, repair broken tails and hidden sessions. Zero-dependency CLI.",
   "keywords": ["dsh", "deepseek-harness", "session-manager", "cli", "windows"],
   "type": "module",
